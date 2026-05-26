@@ -348,6 +348,26 @@ Port 3000 is localhost-only — all external access goes through nginx.
 ## License
 
 MIT — see [LICENSE](LICENSE) for details.
-#   E s t a t e I V R  
- #   E s t a t e I V R  
+#   E s t a t e I V R 
  
+ #   E s t a t e I V R 
+ 
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+Run Command
+docker compose -f docker-compose.local.yml ps
+docker logs shadowpbx-app --tail 100
+docker logs shadowpbx-rtpengine --tail 100
+docker logs shadowpbx-drachtio --tail 100

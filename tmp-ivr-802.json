@@ -1,0 +1,22 @@
+{
+  "number": "802",
+  "name": "Area Menu",
+  "timeout": 8,
+  "maxRetries": 3,
+  "timeoutDest": { "type": "extension", "target": "2001" },
+  "options": [
+    {
+      "digit": "1",
+      "leadField": "area",
+      "leadValue": "Bopal",
+      "destination": { "type": "ivr", "target": "803" }
+    },
+    {
+      "digit": "2",
+      "leadField": "area",
+      "leadValue": "Satellite",
+      "destination": { "type": "ivr", "target": "803" }
+    }
+  ]
+}
+

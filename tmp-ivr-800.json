@@ -1,0 +1,23 @@
+{
+  "number": "800",
+  "name": "State Menu",
+  "greeting": "/audio/ivr-800.wav",
+  "timeout": 8,
+  "maxRetries": 3,
+  "timeoutDest": { "type": "extension", "target": "2001" },
+  "options": [
+    {
+      "digit": "1",
+      "leadField": "state",
+      "leadValue": "Gujarat",
+      "destination": { "type": "ivr", "target": "801" }
+    },
+    {
+      "digit": "2",
+      "leadField": "state",
+      "leadValue": "Maharashtra",
+      "destination": { "type": "ivr", "target": "801" }
+    }
+  ]
+}
+

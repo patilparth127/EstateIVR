@@ -1,0 +1,24 @@
+{
+  "number": "803",
+  "name": "BHK Menu",
+  "timeout": 8,
+  "maxRetries": 3,
+  "timeoutDest": { "type": "extension", "target": "2001" },
+  "options": [
+    {
+      "digit": "1",
+      "leadField": "bhk",
+      "leadValue": "2 BHK",
+      "saveLead": true,
+      "destination": { "type": "extension", "target": "2001" }
+    },
+    {
+      "digit": "2",
+      "leadField": "bhk",
+      "leadValue": "3 BHK",
+      "saveLead": true,
+      "destination": { "type": "extension", "target": "2004" }
+    }
+  ]
+}
+
