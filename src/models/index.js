@@ -634,6 +634,53 @@ const crmConfigSchema = new mongoose.Schema({
 crmConfigSchema.index({ provider: 1 });
 crmConfigSchema.index({ enabled: 1 });
 
+// ============================================================
+// Contact (Outbound calling contact list)
+// ============================================================
+const contactSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  phone: { type: String, required: true, index: true },
+  email: { type: String, default: '' },
+  company: { type: String, default: '' },
+  notes: { type: String, default: '' },
+  tags: [{ type: String }],
+  status: {
+    type: String,
+    enum: ['active', 'called', 'interested', 'not-interested', 'dnc', 'rescheduled'],
+    default: 'active'
+  },
+  lastCalled: Date,
+  lastResponse: { type: String, enum: ['', 'yes', 'no'], default: '' },
+  callCount: { type: Number, default: 0 },
+  remark: { type: String, default: '' },
+  rescheduleDate: Date,
+  labels: [{ type: String }],
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+contactSchema.index({ status: 1 });
+contactSchema.index({ lastResponse: 1 });
+
+// ============================================================
+// CallTranscript (Whisper speech-to-text output)
+// ============================================================
+const callTranscriptSchema = new mongoose.Schema({
+  callId: { type: String, required: true, unique: true, index: true },
+  cdrId: { type: mongoose.Schema.Types.ObjectId, ref: 'CDR' },
+  recordingPath: { type: String, required: true },
+  transcript: { type: String, required: true },
+  language: { type: String, default: 'en' },
+  model: { type: String, default: 'base' },
+  duration: { type: Number, default: 0 },
+  confidence: { type: Number, default: 0 },
+  processingTime: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now }
+});
+
+callTranscriptSchema.index({ callId: 1 });
+callTranscriptSchema.index({ cdrId: 1 });
+
 const Extension = mongoose.model('Extension', extensionSchema);
 const RingGroup = mongoose.model('RingGroup', ringGroupSchema);
 const Trunk = mongoose.model('Trunk', trunkSchema);
@@ -657,5 +704,7 @@ const Lead = mongoose.model('Lead', leadSchema);
 const RealEstateLead = mongoose.model('RealEstateLead', realEstateLeadSchema);
 const DNC = mongoose.model('DNC', dncSchema);
 const CrmConfig = mongoose.model('CrmConfig', crmConfigSchema);
+const Contact = mongoose.model('Contact', contactSchema);
+const CallTranscript = mongoose.model('CallTranscript', callTranscriptSchema);
 
-module.exports = { Extension, RingGroup, Trunk, InboundRoute, OutboundRoute, IVR, TimeCondition, Queue, User, ChatMessage, BlockedNumber, CDR, VoicemailMessage, ActiveCall, SystemSettings, Appointment, AppointmentMessage, SIPDomain, Campaign, Lead, RealEstateLead, DNC, CrmConfig };
+module.exports = { Extension, RingGroup, Trunk, InboundRoute, OutboundRoute, IVR, TimeCondition, Queue, User, ChatMessage, BlockedNumber, CDR, VoicemailMessage, ActiveCall, SystemSettings, Appointment, AppointmentMessage, SIPDomain, Campaign, Lead, RealEstateLead, DNC, CrmConfig, Contact, CallTranscript };

@@ -35,6 +35,9 @@ const DialerEngine = require('./services/dialer-engine');
 const crmManager = require('./services/crm-manager');
 const createApiRouter = require('./routes/api');
 const { startBackgroundSync } = require('./utils/converter');
+const OutboundIvrHandler = require('./services/outbound-ivr');
+const WhisperTranscriber = require('./services/whisper-transcriber');
+const createOutboundApiRouter = require('./routes/outbound-api');
 
 let RtpEngineClient;
 try {
@@ -182,6 +185,19 @@ async function main() {
   const dialerEngine = new DialerEngine(srf, rtpengine, registrar, trunkManager, callHandler);
   callHandler.dialerEngine = dialerEngine;
 
+  // Initialize Outbound IVR Handler for GSM-based outbound calling
+  const outboundIvrHandler = new OutboundIvrHandler(srf, rtpengine, ivrHandler, dtmfListener, io);
+  logger.info('Outbound IVR Handler initialized');
+
+  // Initialize Whisper Transcriber for speech-to-text
+  const whisperTranscriber = new WhisperTranscriber();
+  const whisperInstalled = await whisperTranscriber.checkInstallation();
+  if (whisperInstalled) {
+    logger.info('Whisper transcriber ready');
+  } else {
+    logger.warn('Whisper not installed - transcription disabled. Install with: pip install openai-whisper');
+  }
+
   // Initialize CRM integrations
   callHandler.crmManager = crmManager;
   crmManager.initialize().catch(err => {
@@ -296,6 +312,10 @@ async function main() {
   });
 
   app.use('/api', createApiRouter(registrar, callHandler, trunkManager, transferHandler, holdHandler, parkHandler, voicemailHandler, ivrHandler, monitorHandler, timeConditionService, presenceHandler, queueHandler, appointmentHandler, dialerEngine));
+  
+  // Outbound IVR API routes (for GSM-based calling)
+  app.use('/api/outbound', createOutboundApiRouter(outboundIvrHandler, whisperTranscriber));
+  
   // ─── Health & Monitoring Endpoint ───
   app.get('/health', async (req, res) => {
     const uptime = process.uptime();

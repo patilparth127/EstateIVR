@@ -1,0 +1,223 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: shadowpbx-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpass
+      MONGO_INITDB_DATABASE: shadowpbx
+    volumes:
+      - shadowpbx_mongo_data:/data/db
+      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/01-mongo-init.js:ro
+
+  drachtio:
+    image: drachtio/drachtio-server:0.8.25
+    container_name: shadowpbx-drachtio
+    restart: unless-stopped
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "5061:5061/tcp"
+      - "9022:9022/tcp"
+    env_file:
+      - .env.docker
+    command:
+      - drachtio
+      - --contact
+      - "sip:0.0.0.0:5060;transport=udp,tcp"
+      - --contact
+      - "sip:127.0.0.1:5061;transport=ws"
+      - --external-ip
+      - "0.0.0.0"
+      - --secret
+      - "${DRACHTIO_SECRET}"
+      - --loglevel
+      - info
+
+  rtpengine:
+    image: jambonz/rtpengine:latest
+    container_name: shadowpbx-rtpengine
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "22222:22222/udp"
+      - "10000-10100:10000-10100/udp"
+    env_file:
+      - .env.docker
+    volumes:
+      - ./audio:/audio:ro
+      - ./runtime/voicemail:/voicemail
+      - ./runtime/spool/rtpengine:/var/spool/rtpengine
+    entrypoint:
+      - /usr/local/bin/rtpengine
+    command:
+      - "--interface=${EXTERNAL_IP}"
+      - "--listen-ng=0.0.0.0:22222"
+      - "--port-min=10000"
+      - "--port-max=10100"
+      - "--recording-dir=/var/spool/rtpengine"
+      - "--recording-method=pcap"
+      - "--recording-format=eth"
+      - "--dtmf-log-dest=127.0.0.1:22223"
+      - "--log-level=4"
+      - "--log-stderr"
+      - "--foreground"
+      - "--delete-delay=0"
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/shadowpbx.local.Dockerfile
+    container_name: shadowpbx-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.docker
+    depends_on:
+      - mongo
+      - drachtio
+      - rtpengine
+      - asterisk-gsm
+    working_dir: /app
+    command:
+      - node
+      - src/app.js
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - ./audio:/app/audio
+      - ./runtime/logs:/var/log/shadowpbx
+      - ./runtime/recordings:/recordings
+      - ./runtime/voicemail:/voicemail
+      - ./runtime/spool/rtpengine:/var/spool/rtpengine
+      - ./runtime/transcripts:/var/lib/shadowpbx/transcripts
+
+  recorder:
+    build:
+      context: .
+      dockerfile: docker/shadowpbx.local.Dockerfile
+    container_name: shadowpbx-recorder
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    depends_on:
+      - mongo
+      - rtpengine
+    working_dir: /app
+    command:
+      - node
+      - src/recorder-worker.js
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - ./audio:/app/audio
+      - ./runtime/logs:/var/log/shadowpbx
+      - ./runtime/recordings:/recordings
+      - ./runtime/voicemail:/voicemail
+      - ./runtime/spool/rtpengine:/var/spool/rtpengine
+
+  asterisk-gsm:
+    build:
+      context: ./docker/asterisk-gsm
+      dockerfile: Dockerfile
+    container_name: shadowpbx-asterisk-gsm
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "5061:5060/udp"
+      - "5061:5060/tcp"
+      - "10001-10100:10001-10100/udp"
+    volumes:
+      - ./docker/asterisk-gsm/asterisk.conf:/etc/asterisk/asterisk.conf:ro
+      - ./docker/asterisk-gsm/extensions.conf:/etc/asterisk/extensions.conf:ro
+      - ./docker/asterisk-gsm/sip.conf:/etc/asterisk/sip.conf:ro
+      - ./docker/asterisk-gsm/dongle.conf:/etc/asterisk/dongle.conf:ro
+      - ./audio:/var/lib/asterisk/sounds:ro
+      - ./runtime/asterisk-logs:/var/log/asterisk
+      - ./runtime/asterisk-spool:/var/spool/asterisk
+      - /dev/bus/usb:/dev/bus/usb
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyUSB1:/dev/ttyUSB1
+      - /dev/ttyUSB2:/dev/ttyUSB2
+    networks:
+      - shadowpbx-network
+
+  whisper-worker:
+    build:
+      context: .
+      dockerfile: docker/shadowpbx.local.Dockerfile
+    container_name: shadowpbx-whisper
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    depends_on:
+      - mongo
+    working_dir: /app
+    command:
+      - node
+      - -e
+      - |
+        const { exec } = require('child_process');
+        const fs = require('fs');
+        const { CallTranscript, CDR } = require('./src/models');
+        const mongoose = require('mongoose');
+        
+        async function processRecordings() {
+          await mongoose.connect(process.env.MONGODB_URI || 'mongodb://root:rootpass@mongo:27017/shadowpbx?authSource=admin');
+          
+          const recordingsDir = './runtime/recordings/wav';
+          if (!fs.existsSync(recordingsDir)) {
+            console.log('Recordings directory not found');
+            return;
+          }
+          
+          const files = fs.readdirSync(recordingsDir);
+          for (const file of files) {
+            if (file.endsWith('.wav')) {
+              const callId = file.replace('.wav', '');
+              const existing = await CallTranscript.findOne({ callId });
+              if (!existing) {
+                console.log(`Transcribing ${file}...`);
+                try {
+                  const { stdout } = await exec(`whisper "${recordingsDir}/${file}" --model base --language en --output_format txt --output_dir ./runtime/transcripts`);
+                  const transcriptPath = `./runtime/transcripts/${callId}.txt`;
+                  if (fs.existsSync(transcriptPath)) {
+                    const transcript = fs.readFileSync(transcriptPath, 'utf-8').trim();
+                    const cdr = await CDR.findOne({ callId });
+                    await CallTranscript.create({
+                      callId,
+                      cdrId: cdr ? cdr._id : null,
+                      recordingPath: `${recordingsDir}/${file}`,
+                      transcript,
+                      language: 'en',
+                      model: 'base'
+                    });
+                    console.log(`Transcription saved for ${callId}`);
+                  }
+                } catch (err) {
+                  console.error(`Transcription failed for ${file}:`, err.message);
+                }
+              }
+            }
+          }
+        }
+        
+        setInterval(processRecordings, 60000);
+        processRecordings();
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - ./runtime/recordings:/recordings
+      - ./runtime/transcripts:/var/lib/shadowpbx/transcripts
+
+networks:
+  shadowpbx-network:
+    driver: bridge
+
+volumes:
+  shadowpbx_mongo_data:
